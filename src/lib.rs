@@ -317,7 +317,13 @@ impl<'a> core::ops::DerefMut for BipBufferWriterReservation<'a> {
 }
 
 impl<'a> core::ops::Drop for BipBufferWriterReservation<'a> {
-    fn drop(&mut self) {
+    fn drop(&mut self) {}
+}
+
+impl<'a> BipBufferWriterReservation<'a> {
+    /// Calling `send` (or simply dropping the reservation) marks the end of the write and informs
+    /// the reader that the data in this slice can now be read.
+    pub fn send(self) {
         if self.wraparound {
             self.writer
                 .buffer
@@ -343,14 +349,6 @@ impl<'a> core::ops::Drop for BipBufferWriterReservation<'a> {
 
         #[cfg(feature = "debug")]
         eprintln!("+++{}", self.writer.buffer.dbg_info());
-    }
-}
-
-impl<'a> BipBufferWriterReservation<'a> {
-    /// Calling `send` (or simply dropping the reservation) marks the end of the write and informs
-    /// the reader that the data in this slice can now be read.
-    pub fn send(self) {
-        // drop
     }
 
     /// Truncates a size of the reserved buffer
