@@ -29,9 +29,9 @@
 
 #![deny(missing_docs)]
 
-use std::sync::Arc;
-use core::sync::atomic::{AtomicUsize, Ordering};
 use cache_line_size::CacheAligned;
+use core::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 struct BipBuffer {
     sequestered: Box<dyn std::any::Any>,
@@ -45,11 +45,10 @@ struct BipBuffer {
 #[cfg(feature = "debug")]
 impl BipBuffer {
     fn dbg_info(&self) -> String {
-        format!(" read: {:?} -- write: {:?} -- last: {:?}  [len: {:?}] ",
-                self.read.0,
-                self.write.0,
-                self.last.0,
-                self.len)
+        format!(
+            " read: {:?} -- write: {:?} -- last: {:?}  [len: {:?}] ",
+            self.read.0, self.write.0, self.last.0, self.len
+        )
     }
 }
 
@@ -86,7 +85,9 @@ unsafe impl Send for BipBufferReader {}
 /// This method takes ownership of the storage which can be recovered with `try_unwrap` on
 /// `BipBufferWriter` or `BipBufferReader`. If both sides of the channel have been dropped
 /// (not using `try_unwrap`), the storage is dropped.
-pub fn bip_buffer_from<B: std::ops::DerefMut<Target=[u8]>+'static>(from: B) -> (BipBufferWriter, BipBufferReader) {
+pub fn bip_buffer_from<B: std::ops::DerefMut<Target = [u8]> + 'static>(
+    from: B,
+) -> (BipBufferWriter, BipBufferReader) {
     let mut sequestered = Box::new(from);
     let len = sequestered.len();
     let buf = sequestered.as_mut_ptr();
@@ -126,9 +127,11 @@ pub fn bip_buffer_with_len(len: usize) -> (BipBufferWriter, BipBufferReader) {
 
 impl BipBuffer {
     // NOTE: Panics if B is not the type of the underlying storage.
-    fn into_inner<B: std::ops::DerefMut<Target=[u8]>+'static>(self) -> B {
+    fn into_inner<B: std::ops::DerefMut<Target = [u8]> + 'static>(self) -> B {
         let BipBuffer { sequestered, .. } = self;
-        *sequestered.downcast::<B>().expect("incorrect underlying type")
+        *sequestered
+            .downcast::<B>()
+            .expect("incorrect underlying type")
     }
 }
 
@@ -183,8 +186,18 @@ impl BipBufferWriter {
     /// reader.
     pub fn reserve(&mut self, len: usize) -> Option<BipBufferWriterReservation<'_>> {
         let reserved = self.reserve_core(len);
-        if let Some(PendingReservation { start, len, wraparound }) = reserved {
-            Some(BipBufferWriterReservation { writer: self, start, len, wraparound })
+        if let Some(PendingReservation {
+            start,
+            len,
+            wraparound,
+        }) = reserved
+        {
+            Some(BipBufferWriterReservation {
+                writer: self,
+                start,
+                len,
+                wraparound,
+            })
         } else {
             None
         }
@@ -203,13 +216,22 @@ impl BipBufferWriter {
     /// compete with the receiver [...]
     pub fn spin_reserve(&mut self, len: usize) -> BipBufferWriterReservation<'_> {
         assert!(len <= self.buffer.len);
-        let PendingReservation { start, len, wraparound } = loop {
+        let PendingReservation {
+            start,
+            len,
+            wraparound,
+        } = loop {
             match self.reserve_core(len) {
                 None => continue,
                 Some(r) => break r,
             }
         };
-        BipBufferWriterReservation { writer: self, start, len, wraparound }
+        BipBufferWriterReservation {
+            writer: self,
+            start,
+            len,
+            wraparound,
+        }
     }
 
     /// Attempts to recover the underlying storage. B must be the type of the storage passed to
@@ -220,11 +242,19 @@ impl BipBufferWriter {
     /// # Panic
     ///
     /// Panics if B is not the type of the underlying storage.
-    pub fn try_unwrap<B: std::ops::DerefMut<Target=[u8]>+'static>(self) -> Result<B, Self> {
-        let BipBufferWriter { buffer, write, last, } = self;
+    pub fn try_unwrap<B: std::ops::DerefMut<Target = [u8]> + 'static>(self) -> Result<B, Self> {
+        let BipBufferWriter {
+            buffer,
+            write,
+            last,
+        } = self;
         match Arc::try_unwrap(buffer) {
             Ok(b) => Ok(b.into_inner()),
-            Err(buffer) => Err(BipBufferWriter { buffer, write, last, }),
+            Err(buffer) => Err(BipBufferWriter {
+                buffer,
+                write,
+                last,
+            }),
         }
     }
 }
@@ -276,32 +306,40 @@ impl<'a> core::ops::Deref for BipBufferWriterReservation<'a> {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
-        unsafe {
-            core::slice::from_raw_parts(self.writer.buffer.buf.add(self.start), self.len)
-        }
+        unsafe { core::slice::from_raw_parts(self.writer.buffer.buf.add(self.start), self.len) }
     }
 }
 
 impl<'a> core::ops::DerefMut for BipBufferWriterReservation<'a> {
     fn deref_mut(&mut self) -> &mut [u8] {
-        unsafe {
-            core::slice::from_raw_parts_mut(self.writer.buffer.buf.add(self.start), self.len)
-        }
+        unsafe { core::slice::from_raw_parts_mut(self.writer.buffer.buf.add(self.start), self.len) }
     }
 }
 
 impl<'a> core::ops::Drop for BipBufferWriterReservation<'a> {
     fn drop(&mut self) {
         if self.wraparound {
-            self.writer.buffer.last.0.store(self.writer.write, Ordering::Relaxed);
+            self.writer
+                .buffer
+                .last
+                .0
+                .store(self.writer.write, Ordering::Relaxed);
             self.writer.write = 0;
         }
         self.writer.write += self.len;
         if self.writer.write > self.writer.last {
             self.writer.last = self.writer.write;
-            self.writer.buffer.last.0.store(self.writer.last, Ordering::Relaxed);
+            self.writer
+                .buffer
+                .last
+                .0
+                .store(self.writer.last, Ordering::Relaxed);
         }
-        self.writer.buffer.write.0.store(self.writer.write, Ordering::Release);
+        self.writer
+            .buffer
+            .write
+            .0
+            .store(self.writer.write, Ordering::Release);
 
         #[cfg(feature = "debug")]
         eprintln!("+++{}", self.writer.buffer.dbg_info());
@@ -328,7 +366,10 @@ impl BipBufferReader {
 
         if self.priv_write >= self.read {
             unsafe {
-                core::slice::from_raw_parts_mut(self.buffer.buf.add(self.read), self.priv_write - self.read)
+                core::slice::from_raw_parts_mut(
+                    self.buffer.buf.add(self.read),
+                    self.priv_write - self.read,
+                )
             }
         } else {
             self.priv_last = self.buffer.last.0.load(Ordering::Relaxed);
@@ -337,7 +378,10 @@ impl BipBufferReader {
                 return self.valid();
             }
             unsafe {
-                core::slice::from_raw_parts_mut(self.buffer.buf.add(self.read), self.priv_last - self.read)
+                core::slice::from_raw_parts_mut(
+                    self.buffer.buf.add(self.read),
+                    self.priv_last - self.read,
+                )
             }
         }
     }
@@ -376,11 +420,21 @@ impl BipBufferReader {
     /// # Panic
     ///
     /// Panics if B is not the type of the underlying storage.
-    pub fn try_unwrap<B: std::ops::DerefMut<Target=[u8]>+'static>(self) -> Result<B, Self> {
-        let BipBufferReader { buffer, read, priv_write, priv_last, } = self;
+    pub fn try_unwrap<B: std::ops::DerefMut<Target = [u8]> + 'static>(self) -> Result<B, Self> {
+        let BipBufferReader {
+            buffer,
+            read,
+            priv_write,
+            priv_last,
+        } = self;
         match Arc::try_unwrap(buffer) {
             Ok(b) => Ok(b.into_inner()),
-            Err(buffer) => Err(BipBufferReader { buffer, read, priv_write, priv_last, }),
+            Err(buffer) => Err(BipBufferReader {
+                buffer,
+                read,
+                priv_write,
+                priv_last,
+            }),
         }
     }
 }
@@ -394,7 +448,11 @@ mod tests {
         for i in 0..128 {
             let (mut writer, mut reader) = bip_buffer_from(vec![0u8; 16].into_boxed_slice());
             let sender = std::thread::spawn(move || {
-                writer.reserve(8).as_mut().expect("reserve").copy_from_slice(&[10, 11, 12, 13, 14, 15, 16, i]);
+                writer
+                    .reserve(8)
+                    .as_mut()
+                    .expect("reserve")
+                    .copy_from_slice(&[10, 11, 12, 13, 14, 15, 16, i]);
             });
             let receiver = std::thread::spawn(move || {
                 while reader.valid().len() < 8 {}
@@ -411,7 +469,9 @@ mod tests {
         let (mut writer, mut reader) = bip_buffer_from(vec![0u8; 256].into_boxed_slice());
         let sender = std::thread::spawn(move || {
             for i in 0..128 {
-                writer.spin_reserve(8).copy_from_slice(&[10, 11, 12, 13, 14, 15, 16, i]);
+                writer
+                    .spin_reserve(8)
+                    .copy_from_slice(&[10, 11, 12, 13, 14, 15, 16, i]);
             }
         });
         let receiver = std::thread::spawn(move || {
@@ -430,7 +490,9 @@ mod tests {
         let storage = vec![0u8; 256].into_boxed_slice();
         let (mut writer, mut reader) = bip_buffer_from(storage);
         let sender = std::thread::spawn(move || {
-            writer.spin_reserve(8).copy_from_slice(&[10, 11, 12, 13, 14, 15, 16, 17]);
+            writer
+                .spin_reserve(8)
+                .copy_from_slice(&[10, 11, 12, 13, 14, 15, 16, 17]);
         });
         let receiver = std::thread::spawn(move || {
             while reader.valid().len() < 8 {}
@@ -439,7 +501,10 @@ mod tests {
         });
         sender.join().unwrap();
         let reader = receiver.join().unwrap();
-        let _: Box<[u8]> = reader.try_unwrap().map_err(|_| ()).expect("failed to recover storage");
+        let _: Box<[u8]> = reader
+            .try_unwrap()
+            .map_err(|_| ())
+            .expect("failed to recover storage");
     }
 
     #[test]
@@ -448,7 +513,10 @@ mod tests {
         let storage = vec![0u8; 256].into_boxed_slice();
         let (writer, reader) = bip_buffer_from(storage);
         std::mem::drop(writer);
-        let _: Vec<u8> = reader.try_unwrap().map_err(|_| ()).expect("failed to recover storage");
+        let _: Vec<u8> = reader
+            .try_unwrap()
+            .map_err(|_| ())
+            .expect("failed to recover storage");
     }
 
     #[test]
@@ -470,7 +538,9 @@ mod tests {
                 for i in 0..128u8 {
                     &mut msg[..].copy_from_slice(&[i; MSG_LENGTH as usize][..]);
                     msg[i as usize % (MSG_LENGTH as usize)] = 0;
-                    writer.spin_reserve(MSG_LENGTH as usize).copy_from_slice(&msg[..]);
+                    writer
+                        .spin_reserve(MSG_LENGTH as usize)
+                        .copy_from_slice(&msg[..]);
                 }
             }
         });
@@ -506,7 +576,9 @@ mod tests {
                     for i in 1..length {
                         msg[i as usize] = round;
                     }
-                    writer.spin_reserve(length as usize).copy_from_slice(&msg[..length as usize]);
+                    writer
+                        .spin_reserve(length as usize)
+                        .copy_from_slice(&msg[..length as usize]);
                 }
             }
         });
@@ -516,12 +588,16 @@ mod tests {
                 for round in 0..128u8 {
                     let msg_len = loop {
                         let valid = reader.valid();
-                        if valid.len() < 1 { continue; }
+                        if valid.len() < 1 {
+                            continue;
+                        }
                         break valid[0] as usize;
                     };
                     let recv_msg = loop {
                         let valid = reader.valid();
-                        if valid.len() < msg_len { continue; }
+                        if valid.len() < msg_len {
+                            continue;
+                        }
                         break valid;
                     };
                     msg[0] = msg_len as u8;
@@ -536,5 +612,4 @@ mod tests {
         sender.join().unwrap();
         receiver.join().unwrap();
     }
-
 }

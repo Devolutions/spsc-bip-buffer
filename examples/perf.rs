@@ -1,4 +1,7 @@
-#![cfg_attr(all(target_arch = "x86_64", feature = "nightly_perf_example"), feature(asm))]
+#![cfg_attr(
+    all(target_arch = "x86_64", feature = "nightly_perf_example"),
+    feature(asm)
+)]
 
 use std::sync::{Arc, Barrier, RwLock};
 
@@ -10,11 +13,10 @@ use spsc_bip_buffer::bip_buffer_from;
 //
 // Copyright (c) 2016 Willliam Cody Laeder
 // Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-// 
+//
 // The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-// 
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
 
 #[no_mangle]
 #[inline(never)]
@@ -31,7 +33,7 @@ pub fn tsc_ticks() -> u64 {
             : "volatile"
         );
     }
-    ((high)<<32) | (mask&low)
+    ((high) << 32) | (mask & low)
 }
 
 // ==================================
@@ -54,7 +56,11 @@ fn main() {
 
     dbg!(length, queue_size, repetitions, test_correctness);
 
-    let mut core_ids: Vec<_> = core_affinity::get_core_ids().unwrap().into_iter().map(Some).collect();
+    let mut core_ids: Vec<_> = core_affinity::get_core_ids()
+        .unwrap()
+        .into_iter()
+        .map(Some)
+        .collect();
     let sender_core_id = core_ids[sender_core_id].take().unwrap();
     let receiver_core_id = core_ids[receiver_core_id].take().unwrap();
 
@@ -68,86 +74,99 @@ fn main() {
         let start = start.clone();
 
         ::std::thread::spawn(move || {
-        core_affinity::set_for_current(sender_core_id);
-        #[cfg(all(target_arch = "x86_64", feature = "nightly_perf_example"))]
-        let mut sender_hist = streaming_harness_hdrhist::HDRHist::new();
+            core_affinity::set_for_current(sender_core_id);
+            #[cfg(all(target_arch = "x86_64", feature = "nightly_perf_example"))]
+            let mut sender_hist = streaming_harness_hdrhist::HDRHist::new();
 
-        let msgs: Vec<Vec<u8>> = (0..128u8).map(|round| {
-            let mut msg = vec![0u8; length];
-            for i in 0..length {
-                msg[i as usize] = round;
-            }
-            msg
-        }).collect();
+            let msgs: Vec<Vec<u8>> = (0..128u8)
+                .map(|round| {
+                    let mut msg = vec![0u8; length];
+                    for i in 0..length {
+                        msg[i as usize] = round;
+                    }
+                    msg
+                })
+                .collect();
 
-        barrier.wait();
-        eprintln!("sender start");
-        *start.write().unwrap() = std::time::Instant::now();
+            barrier.wait();
+            eprintln!("sender start");
+            *start.write().unwrap() = std::time::Instant::now();
 
-        for _ in 0..repetitions {
-            for round in 0..128u8 {
-                #[cfg(all(target_arch = "x86_64", feature = "nightly_perf_example"))]
-                let start = tsc_ticks();
-                writer.spin_reserve(length as usize).copy_from_slice(&msgs[round as usize][..length as usize]);
-                #[cfg(all(target_arch = "x86_64", feature = "nightly_perf_example"))]
-                {
-                    let stop = tsc_ticks();
-                    sender_hist.add_value(stop - start);
+            for _ in 0..repetitions {
+                for round in 0..128u8 {
+                    #[cfg(all(target_arch = "x86_64", feature = "nightly_perf_example"))]
+                    let start = tsc_ticks();
+                    writer
+                        .spin_reserve(length as usize)
+                        .copy_from_slice(&msgs[round as usize][..length as usize]);
+                    #[cfg(all(target_arch = "x86_64", feature = "nightly_perf_example"))]
+                    {
+                        let stop = tsc_ticks();
+                        sender_hist.add_value(stop - start);
+                    }
                 }
             }
-        }
 
-        eprintln!("sender done");
-        #[cfg(all(target_arch = "x86_64", feature = "nightly_perf_example"))]
-        let ret = sender_hist;
-        #[cfg(not(all(target_arch = "x86_64", feature = "nightly_perf_example")))]
-        let ret = ();
-        ret
-    }) };
+            eprintln!("sender done");
+            #[cfg(all(target_arch = "x86_64", feature = "nightly_perf_example"))]
+            let ret = sender_hist;
+            #[cfg(not(all(target_arch = "x86_64", feature = "nightly_perf_example")))]
+            let ret = ();
+            ret
+        })
+    };
     let receiver = {
         let barrier = barrier.clone();
         let start = start.clone();
         ::std::thread::spawn(move || {
-        core_affinity::set_for_current(receiver_core_id);
-        let mut msgs_received: usize = 0;
+            core_affinity::set_for_current(receiver_core_id);
+            let mut msgs_received: usize = 0;
 
-        let msgs: Vec<Vec<u8>> = (0..128u8).map(|round| {
-            let mut msg = vec![0u8; length];
-            for i in 0..length {
-                msg[i as usize] = round;
-            }
-            msg
-        }).collect();
+            let msgs: Vec<Vec<u8>> = (0..128u8)
+                .map(|round| {
+                    let mut msg = vec![0u8; length];
+                    for i in 0..length {
+                        msg[i as usize] = round;
+                    }
+                    msg
+                })
+                .collect();
 
-        barrier.wait();
-        eprintln!("receiver start");
+            barrier.wait();
+            eprintln!("receiver start");
 
-        for _ in 0..repetitions {
-            for round in 0..128u8 {
-                let recv_msg = loop {
-                    let valid = reader.valid();
-                    if valid.len() < length { continue; }
-                    break valid;
-                };
-                if test_correctness {
-                    assert_eq!(&recv_msg[..length], &msgs[round as usize][..]);
+            for _ in 0..repetitions {
+                for round in 0..128u8 {
+                    let recv_msg = loop {
+                        let valid = reader.valid();
+                        if valid.len() < length {
+                            continue;
+                        }
+                        break valid;
+                    };
+                    if test_correctness {
+                        assert_eq!(&recv_msg[..length], &msgs[round as usize][..]);
+                    }
+                    assert!(reader.consume(length));
+                    msgs_received += 1;
                 }
-                assert!(reader.consume(length));
-                msgs_received += 1;
             }
-        }
 
-        let start = *start.read().unwrap();
-        let elapsed = start.elapsed();
-        let bytes_received = msgs_received * length;
+            let start = *start.read().unwrap();
+            let elapsed = start.elapsed();
+            let bytes_received = msgs_received * length;
 
-        eprintln!("receiver done");
-        let nanos = elapsed.as_secs() * 1_000_000_000 + (elapsed.subsec_nanos() as u64);
-        let bytes_per_sec = bytes_received as f64 / ((nanos as f64) / 1_000_000_000f64);
-        let msgs_per_sec = msgs_received as f64 / ((nanos as f64) / 1_000_000_000f64);
-        eprintln!("elapsed (nanos)\tbytes\tmsgs\tbytes/s\tmsgs/s");
-        println!("{}\t{}\t{}\t{}\t{}", nanos, bytes_received, msgs_received, bytes_per_sec, msgs_per_sec);
-    }) };
+            eprintln!("receiver done");
+            let nanos = elapsed.as_secs() * 1_000_000_000 + (elapsed.subsec_nanos() as u64);
+            let bytes_per_sec = bytes_received as f64 / ((nanos as f64) / 1_000_000_000f64);
+            let msgs_per_sec = msgs_received as f64 / ((nanos as f64) / 1_000_000_000f64);
+            eprintln!("elapsed (nanos)\tbytes\tmsgs\tbytes/s\tmsgs/s");
+            println!(
+                "{}\t{}\t{}\t{}\t{}",
+                nanos, bytes_received, msgs_received, bytes_per_sec, msgs_per_sec
+            );
+        })
+    };
     #[cfg(all(target_arch = "x86_64", feature = "nightly_perf_example"))]
     {
         let hist = sender.join().unwrap();
